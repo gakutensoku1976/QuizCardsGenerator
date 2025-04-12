@@ -1,29 +1,24 @@
-from PIL import Image, ImageDraw, ImageFont
-import pandas as pd
-import tkinter.filedialog
 import os
+import sys
+import json
+import pandas as pd
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
+from tkinter import filedialog
 
-OUTPUT_IMAGE_WIDTH = 1200
-OUTPUT_IMAGE_HEIGHT = 630
+# ======================
+# 設定読込
+# ======================
+CONFIG_PATH = "config.json"
 
-DEFAULT_BACKGROUND_COLOR = "#000000"
+def load_config(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-TEXT_FONT_PATH = "C:/Windows/Fonts/BIZ-UDGOTHICR.ttc"  # フォント設定（BIZ UDPゴシック）
-LINE_SPACING_RATIO = 1.4  # 行間の広さを決める比率
+CONFIG = load_config(CONFIG_PATH)
 
-TITLE_FONT_SIZE = 42
-TITLE_TEXT_COLOR = "white"
-TITLE_OUTLINE_COLOR = "black"
-
-QUESTION_FONT_SIZE = 36
-QUESTION_TEXT_COLOR = "white"
-QUESTION_OUTLINE_COLOR = "black"
-
-ANSWER_FONT_SIZE = 36
-ANSWER_TEXT_COLOR = "yellow"
-ANSWER_OUTLINE_COLOR = "black"
-
-
+# ======================
+# ユーティリティ関数
+# ======================
 def wrap_text_japanese(text, font, max_width, draw):
     lines = []
     line = ""
@@ -41,161 +36,156 @@ def wrap_text_japanese(text, font, max_width, draw):
     return lines
 
 
-def draw_multiline(
-    draw,
-    text,
-    font,
-    area_top,
-    area_height,
-    x_margin,
-    max_width,
-    fill,
-    outline_fill=None,
-):
+def draw_multiline(draw, text, font, area_top, area_height, x_margin, max_width, fill, outline_fill=None):
+    line_spacing_ratio = CONFIG["layout"]["line_spacing_ratio"]
     lines = wrap_text_japanese(text, font, max_width, draw)
-
     base_line_height = font.getbbox("あ")[3]
-    line_spacing = int(base_line_height * LINE_SPACING_RATIO)
+    line_spacing = int(base_line_height * line_spacing_ratio)
     total_text_height = len(lines) * line_spacing
-
     y_start = area_top + (area_height - total_text_height) // 2
 
     for i, line in enumerate(lines):
         y = y_start + i * line_spacing
         x = x_margin
-
-        # ===== 輪郭線を描画（周囲8方向）=====
         if outline_fill:
-            offsets = [
-                (-1, 0),
-                (1, 0),
-                (0, -1),
-                (0, 1),
-                (-1, -1),
-                (-1, 1),
-                (1, -1),
-                (1, 1),
-            ]
+            offsets = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)]
             for dx, dy in offsets:
                 draw.text((x + dx, y + dy), line, font=font, fill=outline_fill)
-
-        # ===== メインの文字を描画 =====
         draw.text((x, y), line, font=font, fill=fill)
 
 
-def create_image(
-    title,
-    question,
-    answer,
-    output_path,
-    background_image_path=None,
-    background_color=DEFAULT_BACKGROUND_COLOR,
-):
-    width, height = OUTPUT_IMAGE_WIDTH, OUTPUT_IMAGE_HEIGHT
+# ======================
+# 画像生成関数
+# ======================
+def create_image(title, question, answer, output_path, background_image_path=None,
+                 brightness=None, contrast=None, blur=None):
+    width = CONFIG["image"]["width"]
+    height = CONFIG["image"]["height"]
+    background_color = CONFIG["image"].get("background_color", "#000000")
 
-    # 背景画像 or 背景色の処理
+    brightness_factor = brightness if brightness is not None else CONFIG["image"].get("brightness", 1.0)
+    contrast_factor = contrast if contrast is not None else CONFIG["image"].get("contrast", 1.0)
+    blur_radius = blur if blur is not None else CONFIG["image"].get("blur", 0)
+
     if background_image_path:
-        background = Image.open(background_image_path).convert("RGB")
-        background = background.resize((width, height))
+        background = Image.open(background_image_path).convert("RGB").resize((width, height))
+        if brightness_factor != 1.0:
+            background = ImageEnhance.Brightness(background).enhance(brightness_factor)
+        if contrast_factor != 1.0:
+            background = ImageEnhance.Contrast(background).enhance(contrast_factor)
+        if blur_radius > 0:
+            background = background.filter(ImageFilter.GaussianBlur(radius=blur_radius))
     else:
-        # 背景色が指定されていれば使い、なければ黒
-        background = Image.new(
-            "RGB", (width, height), color=background_color or DEFAULT_BACKGROUND_COLOR
-        )
+        background = Image.new("RGB", (width, height), color=background_color)
 
     draw = ImageDraw.Draw(background)
 
-    # 領域高さの設定
     header_height = int(height * 0.05)
     title_height = int(height * 0.20)
     question_height = int(height * 0.50)
     answer_height = int(height * 0.20)
-    footer_height = int(height * 0.05)
 
-    font_path = TEXT_FONT_PATH
-    font_title = ImageFont.truetype(font_path, TITLE_FONT_SIZE)
-    font_question = ImageFont.truetype(font_path, QUESTION_FONT_SIZE)
-    font_answer = ImageFont.truetype(font_path, ANSWER_FONT_SIZE)
+    font_path = CONFIG["font"]["path"]
+    if not os.path.exists(font_path):
+        raise FileNotFoundError(f"フォントファイルが見つかりません: {font_path}")
 
-    x_margin = 30
+    font_title = ImageFont.truetype(font_path, CONFIG["font"]["title_size"])
+    font_question = ImageFont.truetype(font_path, CONFIG["font"]["question_size"])
+    font_answer = ImageFont.truetype(font_path, CONFIG["font"]["answer_size"])
+
+    x_margin = CONFIG["layout"]["x_margin"]
     max_text_width = width - x_margin * 2
 
-    # ===== タイトル =====
-    draw_multiline(
-        draw,
-        title,
-        font_title,
-        header_height,
-        title_height,
-        x_margin,
-        max_text_width,
-        fill=TITLE_TEXT_COLOR,
-        outline_fill=TITLE_OUTLINE_COLOR,
-    )
-
-    # ===== 問題 =====
-    draw_multiline(
-        draw,
-        question,
-        font_question,
-        header_height + title_height,
-        question_height,
-        x_margin,
-        max_text_width,
-        fill=QUESTION_TEXT_COLOR,
-        outline_fill=QUESTION_OUTLINE_COLOR,
-    )
-
-    # ===== 答え =====
-    draw_multiline(
-        draw,
-        f"Ans. : {answer}",
-        font_answer,
-        header_height + title_height + question_height,
-        answer_height,
-        x_margin,
-        max_text_width,
-        fill=ANSWER_TEXT_COLOR,
-        outline_fill=ANSWER_OUTLINE_COLOR,
-    )
+    draw_multiline(draw, title, font_title, header_height, title_height, x_margin, max_text_width,
+                   CONFIG["color"]["title_text"], CONFIG["color"]["title_outline"])
+    draw_multiline(draw, question, font_question, header_height + title_height, question_height, x_margin, max_text_width,
+                   CONFIG["color"]["question_text"], CONFIG["color"]["question_outline"])
+    draw_multiline(draw, f"Ans. : {answer}", font_answer, header_height + title_height + question_height,
+                   answer_height, x_margin, max_text_width, CONFIG["color"]["answer_text"], CONFIG["color"]["answer_outline"])
 
     background.save(output_path)
 
 
-def main():
-    excel_file_name = tkinter.filedialog.askopenfilename(
-        filetypes=[("Excelファイル", "*.xlsx")]
-    )
-    image_file_name = tkinter.filedialog.askopenfilename(
-        filetypes=[("背景画像ファイル", "*.jpg;*.jpeg;*.png")]
-    )
+# ======================
+# メイン処理部
+# ======================
+def select_excel_file():
+    return filedialog.askopenfilename(filetypes=[("Excelファイル", "*.xlsx")])
 
+
+def select_background_image():
+    return filedialog.askopenfilename(filetypes=[("背景画像ファイル", ("*.jpg", "*.jpeg", "*.png"))])
+
+
+def process_excel_data(df, background_image_path):
+    df["ファイル名接頭辞"] = df["ファイル名接頭辞"].fillna("").astype(str)
     base_dir = os.getcwd()
 
-    df = pd.read_excel(excel_file_name)
-    df["ファイル名接頭辞"] = df["ファイル名接頭辞"].fillna("").astype(str)
+    for _, row in df.iterrows():
+        try:
+            round_title = row["ラウンド"]
+            order = int(row["出題順"])
+            question = row["問題文"]
+            answer = row["答え"]
+            folder = str(row["フォルダ名"])
+            prefix = str(row["ファイル名接頭辞"])
 
-    for index, row in df.iterrows():
-        ラウンド = row["ラウンド"]
-        出題順 = int(row["出題順"])
-        問題文 = row["問題文"]
-        答え = row["答え"]
-        フォルダ名 = str(row["フォルダ名"])
-        ファイル名接頭辞 = str(row["ファイル名接頭辞"])
+            output_dir = os.path.join(base_dir, folder)
+            os.makedirs(output_dir, exist_ok=True)
 
-        full_path = os.path.join(base_dir, フォルダ名)
+            filename = f"{prefix}{str(order).zfill(3)}.png"
+            output_path = os.path.join(output_dir, filename)
 
-        if not os.path.exists(full_path):
-            os.makedirs(full_path)
+            create_image(f"{round_title} {order}問目", question, answer, output_path, background_image_path)
+        except Exception as e:
+            print(f"{order}問目の処理中にエラー: {e}")
 
-        create_image(
-            f"{ラウンド} {出題順}問目",
-            問題文,
-            答え,
-            output_path=f"{フォルダ名}/{ファイル名接頭辞}{str(出題順).zfill(3)}.png",
-            background_image_path=image_file_name,
-            background_color=DEFAULT_BACKGROUND_COLOR,
-        )
+# ======================
+# エントリーポイント
+# ======================
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="画像生成モード")
+    parser.add_argument("mode", nargs="?", default="normal", choices=["normal", "test"], help="モード選択: 'normal' or 'test'")
+    parser.add_argument("--brightness", type=float, help="明るさ（1.0 = デフォルト）")
+    parser.add_argument("--contrast", type=float, help="コントラスト（1.0 = デフォルト）")
+    parser.add_argument("--blur", type=float, help="ぼかし半径（0 = なし）")
+    parser.add_argument("--background", type=str, help="背景画像パス（省略時はダイアログ）")
+    args = parser.parse_args()
+
+    if args.mode == "test":
+        background_path = args.background or select_background_image()
+        if not background_path:
+            print("背景画像が選択されませんでした。")
+            return
+
+        title = CONFIG["test"]["title"]
+        question = CONFIG["test"]["question"]
+        answer = CONFIG["test"]["answer"]
+        output_path = CONFIG["test"]["output"]
+
+        create_image(title, question, answer, output_path, background_path,
+                     brightness=args.brightness, contrast=args.contrast, blur=args.blur)
+        print(f"テスト画像を出力しました: {output_path}")
+        return
+
+    # 通常モード
+    excel_path = select_excel_file()
+    if not excel_path:
+        print("Excelファイルが選択されませんでした。")
+        return
+
+    background_path = select_background_image()
+    if not background_path:
+        print("背景画像が選択されませんでした。")
+        return
+
+    try:
+        df = pd.read_excel(excel_path)
+        process_excel_data(df, background_path)
+    except Exception as e:
+        print(f"全体処理中にエラーが発生しました: {e}")
+
 
 
 if __name__ == "__main__":
