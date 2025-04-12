@@ -57,7 +57,7 @@ def draw_multiline(draw, text, font, area_top, area_height, x_margin, max_width,
 # ======================
 # 画像生成関数
 # ======================
-def create_image(title, question, answer, output_path, background_image_path=None,
+def create_image(title, question, answer, background_image_path=None,
                  brightness=None, contrast=None, blur=None):
     width = CONFIG["image"]["width"]
     height = CONFIG["image"]["height"]
@@ -103,7 +103,7 @@ def create_image(title, question, answer, output_path, background_image_path=Non
     draw_multiline(draw, f"Ans. : {answer}", font_answer, header_height + title_height + question_height,
                    answer_height, x_margin, max_text_width, CONFIG["color"]["answer_text"], CONFIG["color"]["answer_outline"])
 
-    background.save(output_path)
+    return background
 
 
 # ======================
@@ -136,9 +136,11 @@ def process_excel_data(df, background_image_path):
             filename = f"{prefix}{str(order).zfill(3)}.png"
             output_path = os.path.join(output_dir, filename)
 
-            create_image(f"{round_title} {order}問目", question, answer, output_path, background_image_path)
+            image = create_image(f"{round_title} {order}問目", question, answer, background_image_path)
+            image.save(output_path)
         except Exception as e:
             print(f"{order}問目の処理中にエラー: {e}")
+
 
 # ======================
 # エントリーポイント
@@ -162,11 +164,10 @@ def main():
         title = CONFIG["test"]["title"]
         question = CONFIG["test"]["question"]
         answer = CONFIG["test"]["answer"]
-        output_path = CONFIG["test"]["output"]
 
-        create_image(title, question, answer, output_path, background_path,
-                     brightness=args.brightness, contrast=args.contrast, blur=args.blur)
-        print(f"テスト画像を出力しました: {output_path}")
+        image = create_image(title, question, answer, background_path,
+                             brightness=args.brightness, contrast=args.contrast, blur=args.blur)
+        image.show()
         return
 
     # 通常モード
@@ -185,7 +186,6 @@ def main():
         process_excel_data(df, background_path)
     except Exception as e:
         print(f"全体処理中にエラーが発生しました: {e}")
-
 
 
 if __name__ == "__main__":

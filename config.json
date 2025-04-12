@@ -28,7 +28,6 @@
     "test": {
         "title": "テストラウンド 1問目",
         "question": "この画像はテストモードで生成されたものです。",
-        "answer": "テスト用の答え",
-        "output": "test_output.png"
+        "answer": "テスト用の答え"
     }
 }
